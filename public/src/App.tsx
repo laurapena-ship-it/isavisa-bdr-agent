@@ -73,7 +73,7 @@ const MODULES = [
 
 const BASE = `Eres el BDR Senior Estratégico de ISAVISA — la primera plataforma empresarial en Latinoamérica para agencias de visas americanas. Tienes profundo conocimiento del producto, del mercado de visados en LATAM, y de los dolores reales de las agencias. Tu enfoque es relevancia quirúrgica, análisis profundo y generación de pipeline de alta calidad.\n\n${ISAVISA_KB}\n\nREGLAS:\n- PROHIBIDO: "Espero que estés bien", frases genéricas, pitch en primer contacto\n- OBLIGATORIO: Primera frase al grano, máximo 100 palabras en emails, CTAs de baja fricción\n- Tono: Profesional, directo, Challenger Sale, empático con el dolor del operador de agencia\n- Responde en español con emojis para organizar visualmente\n- CTAs preferidos: demo 30 min → https://cal.com/isavisa/30min`;
 
-const PROMPTS = {
+const PROMPTS: Record<string, string> = {
   account_research: `${BASE}\nMÓDULO: Account Intelligence.\nEntrega:\n**1. 🏢 Account Snapshot** — perfil, tamaño, volumen estimado, señales\n**2. 🩺 Hypothesis of Pain** — dolor principal, coste de inacción, trigger más fuerte\n**3. 📣 Messaging Matrix** — mensaje para Dueño (ROI), Gestor (tiempo), Champion (visibilidad)\n**4. ❓ Killer Question** — pregunta que fuerce a cuantificar el dolor actual\n**5. 🎯 Multi-thread Strategy** — quién contactar primero, en qué canal`,
   lead_database: `${BASE}\nMÓDULO: Análisis de Base de Leads.\nMODO A — LEAD INDIVIDUAL: ICP Score (0-100), Pain Score, Urgency Score, Deal Score, Segmento (🔥/⭐/🌡️/❌), pain principal, mensaje recomendado.\nMODO B — LISTA: tabla | # | Empresa | País | ICP Score | Pain Score | Urgency | Deal Score | Segmento | Pain Principal | Canal | Siguiente Acción | + resumen ejecutivo con top 5 para contactar HOY.`,
   icp_qualify: `${BASE}\nMÓDULO: Calificación ICP + BANT + MEDDIC.\nEvalúa: ¿Gestiona visas B1/B2? Volumen, país, madurez digital, tamaño equipo. BANT completo. MEDDIC completo. DECISIÓN: ✅ AVANZAR / 🔄 NUTRIR / ❌ DESCARTAR con justificación.`,
@@ -88,7 +88,7 @@ const PROMPTS = {
   persona: `${BASE}\nMÓDULO: Perfil Psicográfico.\nIdentidad, psychographics profundos, perfil de decisión, messaging framework (palabras que resuenan / alejan / frase que detiene el scroll / CTA ideal), anti-persona.`,
 };
 
-const PLACEHOLDERS = {
+const PLACEHOLDERS: Record<string, string> = {
   account_research: "Nombre de la agencia, ciudad, país, LinkedIn del dueño/gestor, o cualquier info disponible...",
   lead_database: "LEAD INDIVIDUAL: info de una agencia.\n\nBASE DE DATOS: pega tabla o lista con múltiples agencias.",
   conversation_analysis: "Pega el texto completo de la conversación (WhatsApp, LinkedIn, email)...",
@@ -106,14 +106,12 @@ const PLACEHOLDERS = {
 export default function ISAVISABDRAgent() {
   const [activeModule, setActiveModule] = useState("account_research");
   const [activeGroup, setActiveGroup] = useState("prospect");
-  const [messages, setMessages] = useState([]);
-  const [history, setHistory] = useState({});
+  const [messages, setMessages] = useState<{role:string,content:string}[]>([]);
+  const [history, setHistory] = useState<Record<string,{role:string,content:string}[]>>({});
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [apiKey, setApiKey] = useState("");
-  const [showKeyInput, setShowKeyInput] = useState(false);
-  const bottomRef = useRef(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
   useEffect(() => { setMessages(history[activeModule] || []); setInput(""); }, [activeModule]);
@@ -121,10 +119,9 @@ export default function ISAVISABDRAgent() {
   const activeMod = MODULES.flatMap(g => g.sub).find(s => s.id === activeModule);
   const activeGroupData = MODULES.find(g => g.id === activeGroup);
 
-  const sendMessage = async (override) => {
+  const sendMessage = async (override?: string) => {
     const content = override || input.trim();
     if (!content || loading) return;
-    if (!apiKey) { setShowKeyInput(true); return; }
     const userMsg = { role: "user", content };
     const newMsgs = [...messages, userMsg];
     setMessages(newMsgs);
@@ -132,7 +129,7 @@ export default function ISAVISABDRAgent() {
     setLoading(true);
     try {
       const res = await fetch("/api/chat", {
-        method: "POST"
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1500, system: PROMPTS[activeModule], messages: newMsgs }),
       });
@@ -142,43 +139,13 @@ export default function ISAVISABDRAgent() {
       setMessages(updated);
       setHistory(h => ({ ...h, [activeModule]: updated }));
     } catch {
-      setMessages(m => [...m, { role: "assistant", content: "❌ Error de conexión. Verifica tu API key." }]);
+      setMessages(m => [...m, { role: "assistant", content: "❌ Error de conexión." }]);
     }
     setLoading(false);
   };
 
   return (
     <div style={{ display: "flex", height: "100vh", background: "#060d18", color: "#e2e8f0", fontFamily: "'Inter', sans-serif", overflow: "hidden" }}>
-
-      {/* API Key Modal */}
-      {showKeyInput && (
-        <div style={{ position: "fixed", inset: 0, background: "#000000dd", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#0a1120", border: "1px solid #1e3a5f", borderRadius: 16, width: "min(480px, 94vw)", padding: 28 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#f1f5f9", marginBottom: 6 }}>🔑 Anthropic API Key</div>
-            <div style={{ fontSize: 12, color: "#475569", marginBottom: 16, lineHeight: 1.6 }}>
-              Necesitas una API key de Anthropic para usar el BDR Agent.<br/>
-              Obtén la tuya en <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" style={{ color: "#38bdf8" }}>console.anthropic.com</a>
-            </div>
-            <input
-              type="password"
-              placeholder="sk-ant-..."
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              style={{ width: "100%", background: "#060d18", border: "1px solid #1e3a5f", borderRadius: 8, color: "#e2e8f0", fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box", marginBottom: 12 }}
-            />
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => { if (apiKey.startsWith("sk-")) setShowKeyInput(false); }} style={{ flex: 1, background: "linear-gradient(135deg, #0ea5e9, #2563eb)", border: "none", color: "#fff", borderRadius: 8, padding: "10px", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
-                Guardar y continuar
-              </button>
-              <button onClick={() => setShowKeyInput(false)} style={{ background: "#1e293b", border: "1px solid #334155", color: "#94a3b8", borderRadius: 8, padding: "10px 16px", cursor: "pointer", fontSize: 12 }}>
-                Cancelar
-              </button>
-            </div>
-            <div style={{ fontSize: 10, color: "#334155", marginTop: 10 }}>La key se guarda solo en memoria del navegador, no se envía a ningún servidor externo salvo Anthropic.</div>
-          </div>
-        </div>
-      )}
-
       {/* Sidebar */}
       <div style={{ width: sidebarOpen ? 220 : 0, minWidth: sidebarOpen ? 220 : 0, background: "#0a1120", borderRight: "1px solid #1e3a5f", display: "flex", flexDirection: "column", transition: "all 0.25s", overflow: "hidden" }}>
         <div style={{ padding: "14px 14px 12px", borderBottom: "1px solid #1e3a5f", flexShrink: 0 }}>
@@ -212,10 +179,7 @@ export default function ISAVISABDRAgent() {
           ))}
         </div>
 
-        <div style={{ padding: "10px 8px", borderTop: "1px solid #1e3a5f", flexShrink: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-          <button onClick={() => setShowKeyInput(true)} style={{ width: "100%", background: "#fbbf2420", border: "1px solid #fbbf2433", color: "#fbbf24", borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-            <span>🔑</span><span>{apiKey ? "API Key ✓" : "Configurar API Key"}</span>
-          </button>
+        <div style={{ padding: "10px 8px", borderTop: "1px solid #1e3a5f", flexShrink: 0 }}>
           <a href="https://cal.com/isavisa/30min" target="_blank" rel="noopener noreferrer" style={{ width: "100%", background: "#0ea5e915", border: "1px solid #0ea5e933", color: "#38bdf8", borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
             <span>📅</span><span>Agendar demo</span>
           </a>
